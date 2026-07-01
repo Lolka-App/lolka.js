@@ -13,6 +13,10 @@ exports.ShardClientUtil = require('./sharding/ShardClientUtil');
 exports.ShardingManager = require('./sharding/ShardingManager');
 exports.WebhookClient = require('./client/WebhookClient');
 
+// Voice (WebRTC)
+exports.joinVoiceChannel = require('./client/voice/VoiceConnection').joinVoiceChannel;
+exports.VoiceConnection = require('./client/voice/VoiceConnection').VoiceConnection;
+
 // Errors
 exports.DiscordjsError = require('./errors/DJSError').DiscordjsError;
 exports.DiscordjsTypeError = require('./errors/DJSError').DiscordjsTypeError;
