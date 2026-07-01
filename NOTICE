@@ -1,0 +1,22 @@
+lolka.js
+Copyright (c) lolka
+
+This product is a fork of discord.js (https://github.com/discordjs/discord.js),
+stable release 14.26.4, licensed under the Apache License, Version 2.0.
+Copyright (c) the discord.js contributors.
+
+You may obtain a copy of the Apache License, Version 2.0 at:
+    http://www.apache.org/licenses/LICENSE-2.0
+A copy is included in the LICENSE file in this repository.
+
+Modifications (per Apache License 2.0, Section 4.b — files have been changed):
+  - Package renamed/published as "lolka.js"; converted from a monorepo package into
+    a standalone package with exact pinned real npm dependency versions.
+  - REST/Gateway target the lolka bot API by default (see src/util/Options.js).
+  - Snowflake decoding uses the lolka epoch/layout (see src/util/LolkaSnowflake.js),
+    replacing @sapphire/snowflake.
+  - CDN asset URL helpers pass through ready lolka CDN URLs (see src/structures/*).
+
+Unless required by applicable law or agreed to in writing, software distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied.
