@@ -1,7 +1,7 @@
 'use strict';
 
 const { userMention } = require('@discordjs/formatters');
-const { calculateUserDefaultAvatarIndex } = require('@discordjs/rest');
+const { lolkaDefaultAvatarIndex } = require('../util/LolkaDefaultAvatar');
 const { DiscordSnowflake } = require('../util/LolkaSnowflake');
 const Base = require('./Base');
 const TextBasedChannel = require('./interfaces/TextBasedChannel');
@@ -270,12 +270,10 @@ class User extends Base {
    * @readonly
    */
   get defaultAvatarURL() {
-    const index =
-      this.discriminator === '0' || this.discriminator === '0000'
-        ? calculateUserDefaultAvatarIndex(this.id)
-        : this.discriminator % 5;
-
-    return this.client.rest.cdn.defaultAvatar(index);
+    // Lolka: свои дефолтные аватарки system/avatars/{0..5}.jpg вместо Discord embed/avatars.
+    // Индекс по FNV-1a от id (как в веб/мобильном клиенте), чтобы дефолт совпадал во всех клиентах.
+    const base = process.env.LOLKA_CDN ?? 'https://cdn.lolka.app';
+    return `${base}/system/avatars/${lolkaDefaultAvatarIndex(this.id)}.jpg`;
   }
 
   /**
