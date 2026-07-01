@@ -2,7 +2,6 @@
 
 const { deprecate } = require('node:util');
 const { Collection } = require('@discordjs/collection');
-const { DiscordSnowflake } = require('../util/LolkaSnowflake');
 const { InteractionType, ApplicationCommandType, ComponentType } = require('discord-api-types/v10');
 const Base = require('./Base');
 const { SelectMenuTypes } = require('../util/Constants');
@@ -136,7 +135,9 @@ class BaseInteraction extends Base {
    * @readonly
    */
   get createdTimestamp() {
-    return DiscordSnowflake.timestampFrom(this.id);
+    // interaction ID сервер генерит в Discord-раскладке (сдвиг 22, эпоха 2015),
+    // декодируем соответственно, а не по lolka-раскладке.
+    return Number((BigInt(this.id) >> 22n) + 1420070400000n);
   }
 
   /**
