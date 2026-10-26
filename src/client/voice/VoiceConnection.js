@@ -44,15 +44,27 @@ const SAMPLE_RATE = 48000;
 const CHANNELS = 2;
 const FRAME_SAMPLES = 480; // 10 мс
 const FRAME_BYTES = FRAME_SAMPLES * CHANNELS * 2;
+const DEFAULT_KICK_GRACE_MS = 5000;
+
+// Живые соединения: owner (голосовой менеджер клиента) -> guildId -> соединение. Повторный
+// joinVoiceChannel переиспользует соединение через rejoin(); разные клиенты не пересекаются.
+const defaultOwner = {};
+const connections = new WeakMap();
+
+function ownerOf(adapterCreator) {
+  return adapterCreator?.voiceManager ?? defaultOwner;
+}
 
 // JSON-RPC поверх WebSocket к голосовому серверу.
 //   request:      { id, method, data }
 //   response:     { id, response: true, data } | { id, response: true, error }
 //   notification: { notification: true, method, data }
 class VoiceSignaling {
-  constructor(url, onNotification) {
+  constructor(url, onNotification, onClose) {
     this.url = url;
     this.onNotification = onNotification;
+    this.onClose = onClose;
+    this.closing = false;
     this.ws = null;
     this.pending = new Map();
     this.nextId = 1;
@@ -63,6 +75,13 @@ class VoiceSignaling {
       this.ws = new WebSocketImpl(this.url);
       this.ws.on('open', resolve);
       this.ws.on('error', reject);
+      this.ws.on('close', () => {
+        for (const [id, p] of this.pending) {
+          this.pending.delete(id);
+          p.reject(new Error('voice signaling closed'));
+        }
+        if (!this.closing) this.onClose?.();
+      });
       this.ws.on('message', buffer => {
         let obj;
         try {
@@ -87,18 +106,34 @@ class VoiceSignaling {
   request(method, data = {}, timeout = 15000) {
     return new Promise((resolve, reject) => {
       const id = this.nextId++;
-      this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify({ id, method, data }));
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
           reject(new Error(`voice signaling timeout: ${method}`));
         }
       }, timeout);
+      this.pending.set(id, {
+        resolve: value => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        reject: error => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      });
+      try {
+        this.ws.send(JSON.stringify({ id, method, data }));
+      } catch (error) {
+        this.pending.delete(id);
+        clearTimeout(timer);
+        reject(error);
+      }
     });
   }
 
   close() {
+    this.closing = true;
     try {
       this.ws?.close();
     } catch {
@@ -119,6 +154,7 @@ class VoiceConnection extends EventEmitter {
     }
     ensureVoiceDeps();
 
+    this._owner = ownerOf(adapterCreator);
     this.channelId = channelId;
     this.guildId = guildId;
     this.state = 'connecting';
@@ -140,8 +176,13 @@ class VoiceConnection extends EventEmitter {
     this._playTimer = null;
     this._playFF = null;
 
+    this._kickTimer = null;
     this._started = false;
     this._destroyed = false;
+    this._migration = 0; // счётчик переездов: результат устаревшего старта/переезда игнорируется
+    this._readyAnnounced = false;
+    this._roomChanged = false;
+    this._stateReceived = false;
 
     let readyResolve;
     let readyReject;
@@ -153,49 +194,111 @@ class VoiceConnection extends EventEmitter {
     this._readyResolve = readyResolve;
     this._readyReject = readyReject;
 
+    this._selfMute = Boolean(selfMute);
+    this._selfDeaf = Boolean(selfDeaf);
+
     this._adapter = adapterCreator({
       onVoiceStateUpdate: data => {
         this.sessionId = data.session_id;
         if (data.channel_id === null || data.channel_id === undefined) {
-          this.destroy();
+          if (this._stateReceived) this.destroy();
+          return;
+        }
+        this._stateReceived = true;
+        const channelId = String(data.channel_id);
+        if (channelId !== String(this.channelId)) {
+          this.channelId = channelId;
+          if (this._started) this._roomChanged = true;
         }
       },
       onVoiceServerUpdate: data => {
+        // Повторный Voice Server Update у уже поднятого соединения приходит, когда голосовой сервер
+        // канала сменили вручную (SetChannelVoiceServer -> migrateBotParticipant) или назначенный
+        // сервер нездоров и бот повторил op 4; также после перемещения бота в другой канал (тот же
+        // endpoint, но новая комната). Failover мёртвого сервера сюда не приходит — он только кикает.
+        // Смена одного лишь токена сессию не трогает: бэкенд перевыпускает его на каждый
+        // Voice State Update (например, при self_mute).
+        const serverChanged =
+          this._started && Boolean(data.endpoint) && (data.endpoint !== this.endpoint || this._roomChanged);
         this.token = data.token;
-        this.endpoint = data.endpoint;
-        this._maybeStart();
+        if (data.endpoint || !this._started) this.endpoint = data.endpoint;
+        if (serverChanged) {
+          this._roomChanged = false;
+          this._migrate();
+        } else {
+          this._maybeStart();
+        }
       },
-      destroy: () => this._cleanup(),
+      // Шард отключился безвозвратно: полный локальный teardown без op 4 и без adapter.destroy().
+      destroy: () => {
+        if (this._destroyed) return;
+        this._destroyed = true;
+        this.state = 'destroyed';
+        this._finalize();
+        this.emit('destroyed');
+      },
     });
 
+    this._sendState(channelId);
+  }
+
+  _sendState(channelId) {
     // Op 4 — Voice State Update (просим сервер подключить нас к каналу).
-    this._adapter.sendPayload({
+    return this._adapter.sendPayload({
       op: 4,
-      d: { guild_id: guildId, channel_id: channelId, self_mute: Boolean(selfMute), self_deaf: Boolean(selfDeaf) },
+      d: { guild_id: this.guildId, channel_id: channelId, self_mute: this._selfMute, self_deaf: this._selfDeaf },
     });
+  }
+
+  /**
+   * Переместить соединение в другой канал (или обновить mute/deaf) без пересоздания.
+   * @param {Object} options
+   * @param {string} [options.channelId] ID нового голосового канала
+   * @param {boolean} [options.selfMute]
+   * @param {boolean} [options.selfDeaf]
+   * @returns {boolean} Удалось ли отправить op 4
+   */
+  rejoin({ channelId = this.channelId, selfMute = this._selfMute, selfDeaf = this._selfDeaf } = {}) {
+    if (this._destroyed) throw new Error('voice connection is destroyed');
+    this._selfMute = Boolean(selfMute);
+    this._selfDeaf = Boolean(selfDeaf);
+    return this._sendState(channelId);
   }
 
   /** Дождаться готовности соединения (WebRTC поднят). */
   awaitReady(timeout = 30000) {
-    return Promise.race([
-      this._ready,
-      new Promise((_, rej) => setTimeout(() => rej(new Error('voice connection timeout')), timeout)),
-    ]);
+    let timer;
+    const timeoutPromise = new Promise((_, rej) => {
+      timer = setTimeout(() => rej(new Error('voice connection timeout')), timeout);
+    });
+    return Promise.race([this._ready, timeoutPromise]).finally(() => clearTimeout(timer));
   }
 
   async _maybeStart() {
     if (this._started || this._destroyed || !this.token || !this.endpoint) return;
     this._started = true;
+    const migration = this._migration;
     try {
-      await this._start();
-      this.state = 'ready';
-      this.emit('ready');
-      this._readyResolve();
+      await this._start(migration);
+      // Пока поднимались, голосовой сервер сменился — исход этого старта уже не важен,
+      // готовность объявит _migrate.
+      if (migration !== this._migration) return;
+      this._markReady();
     } catch (error) {
-      this.state = 'error';
-      this.emit('error', error);
+      if (migration !== this._migration || this._destroyed) return;
       this._readyReject(error);
+      if (this.listenerCount('error') > 0) this.emit('error', error);
+      this.destroy();
     }
+  }
+
+  /** Соединение поднято: `ready` и awaitReady() срабатывают один раз, даже после переездов. */
+  _markReady() {
+    this.state = 'ready';
+    if (this._readyAnnounced) return;
+    this._readyAnnounced = true;
+    this.emit('ready');
+    this._readyResolve();
   }
 
   _signalingUrl() {
@@ -204,79 +307,155 @@ class VoiceConnection extends EventEmitter {
     return `${ep}${ep.includes('?') ? '&' : '?'}token=${this.token}`;
   }
 
-  async _start() {
-    this._signaling = new VoiceSignaling(this._signalingUrl(), (method, data) => this._onNotification(method, data));
-    await this._signaling.connect();
+  /**
+   * Голосовой сервер сменился — пересобираем сессию на новом endpoint. Исходящий трек
+   * сохраняется, поэтому текущее воспроизведение не прерывается.
+   */
+  async _migrate() {
+    if (this._destroyed) return;
+    const migration = ++this._migration;
+    this.state = 'connecting';
+    this._closeSession();
+    try {
+      await this._start(migration);
+      if (migration !== this._migration || this._destroyed) return;
+      this._markReady();
+    } catch (error) {
+      if (migration !== this._migration || this._destroyed) return;
+      this._readyReject(error);
+      if (this.listenerCount('error') > 0) this.emit('error', error);
+      this.destroy();
+    }
+  }
 
-    const routerRtpCapabilities = await this._signaling.request('getRouterRtpCapabilities', {});
-    this._device = new rtcClient.Device({ handlerName: 'Chrome111' });
-    await this._device.load({ routerRtpCapabilities });
+  async _start(migration) {
+    const check = () => {
+      if (migration !== this._migration || this._destroyed) throw new Error('voice session superseded');
+    };
+    const signaling = new VoiceSignaling(
+      this._signalingUrl(),
+      (method, data) => {
+        // Уведомления от уже заменённого сигналинга (прежний голосовой сервер) игнорируем —
+        // иначе его запоздалый `kicked` уничтожил бы переехавшее соединение.
+        if (this._signaling !== signaling) return undefined;
+        return this._onNotification(method, data);
+      },
+      () => {
+        if (this._signaling === signaling) this._scheduleKickDestroy();
+      },
+    );
+    this._signaling = signaling;
+    await signaling.connect();
+    check();
 
-    await this._createSendTransport();
-    await this._createRecvTransport();
+    const routerRtpCapabilities = await signaling.request('getRouterRtpCapabilities', {});
+    check();
+    const device = new rtcClient.Device({ handlerName: 'Chrome111' });
+    await device.load({ routerRtpCapabilities });
+    check();
+    this._device = device;
 
-    // Постоянный исходящий трек; play() подаёт в него PCM.
-    this._audioSource = new wrtc.nonstandard.RTCAudioSource();
-    this._audioTrack = this._audioSource.createTrack();
-    this._producer = await this._sendTransport.produce({ track: this._audioTrack });
+    await this._createSendTransport(check);
+    await this._createRecvTransport(check);
+    check();
 
-    const { producers } = await this._signaling.request('getProducers', {});
+    // Постоянный исходящий трек; play() подаёт в него PCM. Создаётся один раз и переживает
+    // смену голосового сервера (stopTracks: false — закрытие продюсера трек не останавливает).
+    if (!this._audioSource) {
+      this._audioSource = new wrtc.nonstandard.RTCAudioSource();
+      this._audioTrack = this._audioSource.createTrack();
+    }
+    this._producer = await this._sendTransport.produce({ track: this._audioTrack, stopTracks: false });
+
+    check();
+    const { producers } = await signaling.request('getProducers', {});
+    check();
     for (const p of producers) await this._consume(p.producerId, p.userId, p.kind);
   }
 
-  async _createSendTransport() {
+  async _createSendTransport(check) {
     const params = await this._signaling.request('createWebRtcTransport', { direction: 'send' });
+    check();
     this._sendTransport = this._device.createSendTransport(params);
-    this._sendTransport.on('connect', ({ dtlsParameters }, callback, errback) =>
-      this._signaling
-        .request('connectTransport', { transportId: this._sendTransport.id, dtlsParameters })
+    const signaling = this._signaling;
+    const transport = this._sendTransport;
+    transport.on('connect', ({ dtlsParameters }, callback, errback) =>
+      signaling
+        .request('connectTransport', { transportId: transport.id, dtlsParameters })
         .then(() => callback())
         .catch(errback),
     );
-    this._sendTransport.on('produce', ({ kind, rtpParameters, appData }, callback, errback) =>
-      this._signaling
-        .request('produce', { transportId: this._sendTransport.id, kind, rtpParameters, appData })
+    transport.on('produce', ({ kind, rtpParameters, appData }, callback, errback) =>
+      signaling
+        .request('produce', { transportId: transport.id, kind, rtpParameters, appData })
         .then(({ id }) => callback({ id }))
         .catch(errback),
     );
   }
 
-  async _createRecvTransport() {
+  async _createRecvTransport(check) {
     const params = await this._signaling.request('createWebRtcTransport', { direction: 'recv' });
+    check();
     this._recvTransport = this._device.createRecvTransport(params);
-    this._recvTransport.on('connect', ({ dtlsParameters }, callback, errback) =>
-      this._signaling
-        .request('connectTransport', { transportId: this._recvTransport.id, dtlsParameters })
+    const signaling = this._signaling;
+    const transport = this._recvTransport;
+    transport.on('connect', ({ dtlsParameters }, callback, errback) =>
+      signaling
+        .request('connectTransport', { transportId: transport.id, dtlsParameters })
         .then(() => callback())
         .catch(errback),
     );
   }
 
   async _consume(producerId, userId, kind) {
-    if (this._consumers.has(producerId) || !this._recvTransport) return;
+    const recv = this._recvTransport;
+    const signaling = this._signaling;
+    if (kind !== 'audio' || !recv || !signaling || this._consumers.has(producerId)) return;
     try {
-      const params = await this._signaling.request('consume', {
-        transportId: this._recvTransport.id,
+      const params = await signaling.request('consume', {
+        transportId: recv.id,
         producerId,
         rtpCapabilities: this._device.rtpCapabilities,
       });
-      const consumer = await this._recvTransport.consume(params);
-      await this._signaling.request('resumeConsumer', { consumerId: consumer.id });
+      if (this._recvTransport !== recv) return;
+      const consumer = await recv.consume(params);
+      if (this._recvTransport !== recv) return;
+      await signaling.request('resumeConsumer', { consumerId: consumer.id });
+      if (this._recvTransport !== recv) return;
       this._consumers.set(producerId, consumer);
       this.emit('track', consumer.track, userId, producerId);
     } catch (error) {
-      this.emit('error', error);
+      if (this._recvTransport === recv && this.listenerCount('error') > 0) this.emit('error', error);
     }
   }
 
   async _onNotification(method, data) {
     if (method === 'newProducer') {
       await this._consume(data.producerId, data.userId, data.kind);
-    } else if (method === 'consumerClosed' || method === 'producerClosed') {
+    } else if (method === 'producerClosed') {
       if (data.producerId) this._consumers.delete(data.producerId);
+    } else if (method === 'consumerClosed') {
+      for (const [producerId, consumer] of this._consumers) {
+        if (consumer.id === data.consumerId) this._consumers.delete(producerId);
+      }
     } else if (method === 'kicked') {
-      this.destroy();
+      this._scheduleKickDestroy();
     }
+  }
+
+  /**
+   * Сервер кикнул нас (или сигналинг оборвался). При перемещении бота в другой канал за киком сразу
+   * следует переезд, поэтому уничтожаем соединение только если за grace-период переезда не было.
+   */
+  _scheduleKickDestroy() {
+    if (this._destroyed) return;
+    const migration = this._migration;
+    clearTimeout(this._kickTimer);
+    this._kickTimer = setTimeout(() => {
+      this._kickTimer = null;
+      if (!this._destroyed && migration === this._migration) this.destroy();
+    }, VoiceConnection.kickGraceMs);
+    this._kickTimer.unref?.();
   }
 
   /**
@@ -369,7 +548,6 @@ class VoiceConnection extends EventEmitter {
     if (this._destroyed) return;
     this._destroyed = true;
     this.state = 'destroyed';
-    this.stop();
     try {
       this._adapter?.sendPayload({
         op: 4,
@@ -378,7 +556,7 @@ class VoiceConnection extends EventEmitter {
     } catch {
       // ignore
     }
-    this._cleanup();
+    this._finalize();
     try {
       this._adapter?.destroy();
     } catch {
@@ -387,7 +565,25 @@ class VoiceConnection extends EventEmitter {
     this.emit('destroyed');
   }
 
-  _cleanup() {
+  _finalize() {
+    clearTimeout(this._kickTimer);
+    this._kickTimer = null;
+    this.stop();
+    this._closeSession();
+    try {
+      this._audioTrack?.stop();
+    } catch {
+      // ignore
+    }
+    this._audioTrack = null;
+    this._audioSource = null;
+    if (!this._readyAnnounced) this._readyReject(new Error('voice connection destroyed'));
+    const byGuild = connections.get(this._owner);
+    if (byGuild?.get(this.guildId) === this) byGuild.delete(this.guildId);
+  }
+
+  /** Закрыть сессию с текущим голосовым сервером, не трогая исходящий трек. */
+  _closeSession() {
     this._consumers.clear();
     for (const transport of [this._sendTransport, this._recvTransport]) {
       try {
@@ -398,6 +594,7 @@ class VoiceConnection extends EventEmitter {
     }
     this._sendTransport = null;
     this._recvTransport = null;
+    this._producer = null;
     this._signaling?.close();
     this._signaling = null;
   }
@@ -414,7 +611,26 @@ class VoiceConnection extends EventEmitter {
  * @returns {VoiceConnection}
  */
 function joinVoiceChannel(options) {
-  return new VoiceConnection(options);
+  const owner = ownerOf(options.adapterCreator);
+  let byGuild = connections.get(owner);
+  const existing = byGuild?.get(options.guildId);
+  if (existing && !existing._destroyed) {
+    existing.rejoin({ channelId: options.channelId, selfMute: options.selfMute, selfDeaf: options.selfDeaf });
+    return existing;
+  }
+  const connection = new VoiceConnection(options);
+  if (!byGuild) {
+    byGuild = new Map();
+    connections.set(owner, byGuild);
+  }
+  byGuild.set(options.guildId, connection);
+  return connection;
 }
+
+/**
+ * How long (ms) the connection survives a kick or a lost signaling socket waiting for a move.
+ * @type {number}
+ */
+VoiceConnection.kickGraceMs = DEFAULT_KICK_GRACE_MS;
 
 module.exports = { VoiceConnection, joinVoiceChannel };

@@ -8136,9 +8136,16 @@ export interface VoiceConnectionOptions {
   selfDeaf?: boolean;
 }
 
+export interface VoiceConnectionRejoinOptions {
+  channelId?: string;
+  selfMute?: boolean;
+  selfDeaf?: boolean;
+}
+
 export type VoiceConnectionState = 'connecting' | 'ready' | 'error' | 'destroyed';
 
 export class VoiceConnection extends EventEmitter {
+  public static kickGraceMs: number;
   private constructor(options: VoiceConnectionOptions);
   public channelId: string;
   public guildId: string;
@@ -8147,6 +8154,7 @@ export class VoiceConnection extends EventEmitter {
   public token: string | null;
   public endpoint: string | null;
   public awaitReady(timeout?: number): Promise<void>;
+  public rejoin(options?: VoiceConnectionRejoinOptions): boolean;
   public play(input: string | NodeJS.ReadableStream): void;
   public stop(): void;
   public destroy(): void;

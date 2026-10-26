@@ -78,6 +78,16 @@ client.login('token');
 Leave the channel with `connection.destroy()`, and stop playback (without leaving) with
 `connection.stop()`. Playing files requires `ffmpeg` to be available in the bot's environment.
 
+Calling `joinVoiceChannel` again for a guild that already has a live connection reuses it and moves the
+bot via `connection.rejoin({ channelId, selfMute, selfDeaf })` (all fields optional), like `@discordjs/voice`.
+Moving the bot between channels, or the channel being moved to another voice server, is transparent to
+`play()`: the outgoing track is kept and playback continues. After such a move the `track` event fires
+again for every participant (the old tracks end), and `ready` is still emitted only once. If the voice
+server kicks the bot, or the connection to the voice server is lost, and no move follows within a few
+seconds, the connection is destroyed (`state` stays `'ready'` during that grace period). A failed initial
+start also destroys the connection, so the next `joinVoiceChannel` creates a fresh one. Connections are
+reused per client and guild, so several clients in one process do not interfere.
+
 `joinVoiceChannel(options)` accepts:
 
 | option | type | description |
@@ -87,3 +97,31 @@ Leave the channel with `connection.destroy()`, and stop playback (without leavin
 | `adapterCreator` | `Function` | `guild.voiceAdapterCreator` |
 | `selfMute` | `boolean` | default `false` |
 | `selfDeaf` | `boolean` | default `false` |
+
+## Configuration
+
+`lolka.js` talks to the public lolka by default. These environment variables override the endpoints
+(read when a client is created, no trailing slash needed):
+
+| variable | default | description |
+| --- | --- | --- |
+| `LOLKA_API_BASE` | `https://lolka.app/api/bot` | Bot API base (the library appends `/v10`). The gateway URL is taken from `GET /gateway/bot` |
+| `LOLKA_CDN` | `https://cdn.lolka.app` | CDN for avatars, banners, icons, emojis, soundboard |
+| `LOLKA_WEB` | `https://lolka.app` | Web client, used for channel/message links and bot authorization |
+| `LOLKA_INVITE` | `https://lolka.gg` | Base of invite links |
+
+### CDN
+
+The lolka CDN does no resizing and serves only webp, so the `size`, `extension` and `forceStatic`
+options of `avatarURL()`, `iconURL()`, `bannerURL()` and friends are ignored. `client.rest.cdn` is a
+`LolkaCDN` (exported, together with the `LolkaCDNBase`, `LolkaWebBase`, `LolkaInviteBase` and
+`LolkaApiBase` constants, which are snapshots of the values at load time).
+
+### Links
+
+- `invite.url` is `https://lolka.gg/{code}`; invites are also recognised as `https://lolka.app/i/{code}`
+- `client.generateInvite()` returns `https://lolka.app/bot-authorize?client_id=...`
+- `webhook.url` is `https://lolka.app/api/webhooks/{id}/{token}`; `WebhookClient` accepts such URLs
+- `channel.url` is `https://lolka.app/servers/{guild}/channels/{channel}` (DMs: `/me/channels/{channel}`),
+  `message.url` appends `/{message}`
+- the exported `channelLink()` and `messageLink()` build the same URLs

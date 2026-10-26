@@ -1457,7 +1457,7 @@ class Guild extends AnonymousGuild {
    * @readonly
    */
   get voiceAdapterCreator() {
-    return methods => {
+    const creator = methods => {
       this.client.voice.adapters.set(this.id, methods);
       return {
         sendPayload: data => {
@@ -1466,10 +1466,13 @@ class Guild extends AnonymousGuild {
           return true;
         },
         destroy: () => {
-          this.client.voice.adapters.delete(this.id);
+          if (this.client.voice.adapters.get(this.id) === methods) this.client.voice.adapters.delete(this.id);
         },
       };
     };
+    // Метка владельца: voice-соединения разных клиентов в одной гильдии не пересекаются.
+    creator.voiceManager = this.client.voice;
+    return creator;
   }
 
   /**
