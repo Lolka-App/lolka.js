@@ -1,12 +1,22 @@
 'use strict';
 
-const { RouteBases, Routes, PermissionFlagsBits } = require('discord-api-types/v10');
+const { Routes, PermissionFlagsBits } = require('discord-api-types/v10');
 const Base = require('./Base');
 const { GuildScheduledEvent } = require('./GuildScheduledEvent');
 const IntegrationApplication = require('./IntegrationApplication');
 const InviteStageInstance = require('./InviteStageInstance');
 const { DiscordjsError, ErrorCodes } = require('../errors');
 const { InviteFlagsBitField } = require('../util/InviteFlagsBitField.js');
+const { resolveInviteBase } = require('../util/LolkaConstants');
+
+const escapeRegExp = text => text.replaceAll(/[$()*+.?[\\\]^{|}]/g, '\\$&');
+
+function buildInvitesPattern() {
+  const hosts = ['lolka.gg', 'lolka.app/i'];
+  const custom = resolveInviteBase().replace(/^https?:\/\//i, '');
+  if (custom && !hosts.includes(custom.toLowerCase())) hosts.push(custom);
+  return new RegExp(`(?<![\\w.-])(?:www\\.)?(?:${hosts.map(escapeRegExp).join('|')})\\/(?<code>[\\w-]{2,255})`, 'i');
+}
 
 /**
  * Represents an invitation to a guild channel.
@@ -14,12 +24,12 @@ const { InviteFlagsBitField } = require('../util/InviteFlagsBitField.js');
  */
 class Invite extends Base {
   /**
-   * A regular expression that matches Discord invite links.
+   * A regular expression that matches Lolka invite links (`lolka.gg/{code}`, `lolka.app/i/{code}` and the host from `LOLKA_INVITE`).
    * The `code` group property is present on the `exec()` result of this expression.
    * @type {RegExp}
    * @memberof Invite
    */
-  static InvitesPattern = /discord(?:(?:app)?\.com\/invite|\.gg(?:\/invite)?)\/(?<code>[\w-]{2,255})/i;
+  static InvitesPattern = buildInvitesPattern();
 
   constructor(client, data) {
     super(client);
@@ -296,7 +306,7 @@ class Invite extends Base {
    * @readonly
    */
   get url() {
-    return `${RouteBases.invite}/${this.code}`;
+    return `${resolveInviteBase()}/${this.code}`;
   }
 
   /**
@@ -313,7 +323,7 @@ class Invite extends Base {
    * When concatenated with a string, this automatically concatenates the invite's URL instead of the object.
    * @returns {string}
    * @example
-   * // Logs: Invite: https://discord.gg/A1b2C3
+   * // Logs: Invite: https://lolka.gg/A1b2C3
    * console.log(`Invite: ${invite}`);
    */
   toString() {

@@ -64,7 +64,7 @@ class Emoji extends Base {
       deprecationEmittedForURL = true;
     }
 
-    return this.imageURL({ extension: this.animated ? 'gif' : 'png' });
+    return this.imageURL();
   }
 
   /**

@@ -272,8 +272,7 @@ class User extends Base {
   get defaultAvatarURL() {
     // Lolka: свои дефолтные аватарки system/avatars/{0..5}.jpg вместо Discord embed/avatars.
     // Индекс по FNV-1a от id (как в веб/мобильном клиенте), чтобы дефолт совпадал во всех клиентах.
-    const base = process.env.LOLKA_CDN ?? 'https://cdn.lolka.app';
-    return `${base}/system/avatars/${lolkaDefaultAvatarIndex(this.id)}.jpg`;
+    return this.client.rest.cdn.defaultAvatar(lolkaDefaultAvatarIndex(this.id));
   }
 
   /**

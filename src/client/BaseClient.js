@@ -4,6 +4,7 @@ const EventEmitter = require('node:events');
 const { REST } = require('@discordjs/rest');
 const { Routes } = require('discord-api-types/v10');
 const { DiscordjsTypeError, ErrorCodes } = require('../errors');
+const LolkaCDN = require('../util/LolkaCDN');
 const Options = require('../util/Options');
 const { flatten } = require('../util/Util');
 
@@ -53,6 +54,7 @@ class BaseClient extends EventEmitter {
      * @type {REST}
      */
     this.rest = new REST(this.options.rest);
+    this.rest.cdn = new LolkaCDN(this.options.rest.cdn, this.options.rest.mediaProxy);
   }
 
   /**

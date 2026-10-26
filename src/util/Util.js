@@ -3,9 +3,10 @@
 const { parse } = require('node:path');
 const process = require('node:process');
 const { Collection } = require('@discordjs/collection');
-const { ChannelType, RouteBases, Routes } = require('discord-api-types/v10');
+const { ChannelType, Routes } = require('discord-api-types/v10');
 const { fetch } = require('undici');
 const Colors = require('./Colors');
+const { resolveApiBase } = require('./LolkaConstants');
 const { DiscordjsError, DiscordjsRangeError, DiscordjsTypeError, ErrorCodes } = require('../errors');
 const isObject = d => typeof d === 'object' && d !== null;
 
@@ -61,17 +62,18 @@ function flatten(obj, ...props) {
  * @typedef {Object} FetchRecommendedShardCountOptions
  * @property {number} [guildsPerShard=1000] Number of guilds assigned per shard
  * @property {number} [multipleOf=1] The multiple the shard count should round up to. (16 for large bot sharding)
+ * @property {string} [api] Base URL of the Lolka bot API (defaults to `LOLKA_API_BASE` or the public bot API)
  */
 
 /**
- * Gets the recommended shard count from Discord.
+ * Gets the recommended shard count from Lolka.
  * @param {string} token Discord auth token
  * @param {FetchRecommendedShardCountOptions} [options] Options for fetching the recommended shard count
  * @returns {Promise<number>} The recommended number of shards
  */
-async function fetchRecommendedShardCount(token, { guildsPerShard = 1_000, multipleOf = 1 } = {}) {
+async function fetchRecommendedShardCount(token, { guildsPerShard = 1_000, multipleOf = 1, api = resolveApiBase() } = {}) {
   if (!token) throw new DiscordjsError(ErrorCodes.TokenMissing);
-  const response = await fetch(RouteBases.api + Routes.gatewayBot(), {
+  const response = await fetch(`${api.replace(/\/+$/, '')}/v10${Routes.gatewayBot()}`, {
     method: 'GET',
     headers: { Authorization: `Bot ${token.replace(/^Bot\s*/i, '')}` },
   });
@@ -410,14 +412,26 @@ function cleanCodeBlockContent(text) {
  * @returns {?WebhookClientDataIdWithToken} `null` if the URL is invalid, otherwise the id and the token
  */
 function parseWebhookURL(url) {
+  const parsed = parseWebhookURLWithOrigin(url);
+  return parsed && { id: parsed.id, token: parsed.token };
+}
+
+/**
+ * Parses a webhook URL for the id, token and origin.
+ * @param {string} url The URL to parse
+ * @returns {?{id: string, token: string, origin: string}} `null` if the URL is invalid
+ * @private
+ */
+function parseWebhookURLWithOrigin(url) {
   const matches = url.match(
-    /https?:\/\/(?:ptb\.|canary\.)?discord\.com\/api(?:\/v\d{1,2})?\/webhooks\/(\d{17,19})\/([\w-]{68})/i,
+    /(https?:\/\/[^/\s]+)\/api(?:\/bot)?(?:\/v\d{1,2})?\/webhooks\/(\d+)\/([\w.-]+)/i,
   );
 
-  if (!matches || matches.length <= 2) return null;
+  if (!matches) return null;
 
-  const [, id, token] = matches;
+  const [, origin, id, token] = matches;
   return {
+    origin,
     id,
     token,
   };
@@ -546,6 +560,7 @@ module.exports = {
   cleanContent,
   cleanCodeBlockContent,
   parseWebhookURL,
+  parseWebhookURLWithOrigin,
   transformResolved,
   resolveSKUId,
   emitDeprecationWarningForUserFetchFlags,

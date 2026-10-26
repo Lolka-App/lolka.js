@@ -1,7 +1,7 @@
 'use strict';
 
 const { Collection } = require('@discordjs/collection');
-const { messageLink } = require('@discordjs/formatters');
+const { messageLink } = require('../util/LolkaLinks');
 const { DiscordSnowflake } = require('../util/LolkaSnowflake');
 const {
   InteractionType,

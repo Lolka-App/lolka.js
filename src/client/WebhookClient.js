@@ -3,7 +3,7 @@
 const BaseClient = require('./BaseClient');
 const { DiscordjsError, ErrorCodes } = require('../errors');
 const Webhook = require('../structures/Webhook');
-const { parseWebhookURL } = require('../util/Util');
+const { parseWebhookURLWithOrigin } = require('../util/Util');
 
 /**
  * The webhook client.
@@ -41,18 +41,22 @@ class WebhookClient extends BaseClient {
    * @param {WebhookClientOptions} [options] Options for the webhook client
    */
   constructor(data, options) {
-    super(options);
-    Object.defineProperty(this, 'client', { value: this });
     let { id, token } = data;
 
     if ('url' in data) {
-      const parsed = parseWebhookURL(data.url);
+      const parsed = parseWebhookURLWithOrigin(data.url);
       if (!parsed) {
         throw new DiscordjsError(ErrorCodes.WebhookURLInvalid);
       }
 
       ({ id, token } = parsed);
+      if ((options === undefined || (typeof options === 'object' && options !== null)) && !options?.rest?.api) {
+        options = { ...options, rest: { ...options?.rest, api: `${parsed.origin}/api/bot` } };
+      }
     }
+
+    super(options);
+    Object.defineProperty(this, 'client', { value: this });
 
     this.id = id;
     Object.defineProperty(this, 'token', { value: token, writable: true, configurable: true });

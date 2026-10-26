@@ -1,9 +1,10 @@
 'use strict';
 
 const { DiscordSnowflake } = require('../util/LolkaSnowflake');
-const { GuildScheduledEventStatus, GuildScheduledEventEntityType, RouteBases } = require('discord-api-types/v10');
+const { GuildScheduledEventStatus, GuildScheduledEventEntityType } = require('discord-api-types/v10');
 const Base = require('./Base');
 const { DiscordjsError, ErrorCodes } = require('../errors');
+const { resolveInviteBase, resolveWebBase } = require('../util/LolkaConstants');
 
 /**
  * Represents a scheduled event in a {@link Guild}.
@@ -321,12 +322,12 @@ class GuildScheduledEvent extends Base {
   }
 
   /**
-   * The URL to the guild scheduled event
+   * The URL to the guild scheduled event. Lolka has no page for events, so this is the URL of the guild
    * @type {string}
    * @readonly
    */
   get url() {
-    return `${RouteBases.scheduledEvent}/${this.guildId}/${this.id}`;
+    return `${resolveWebBase()}/servers/${this.guildId}`;
   }
 
   /**
@@ -350,7 +351,7 @@ class GuildScheduledEvent extends Base {
       if (!channelId) throw new DiscordjsError(ErrorCodes.GuildChannelResolve);
     }
     const invite = await this.guild.invites.create(channelId, options);
-    return `${RouteBases.invite}/${invite.code}?event=${this.id}`;
+    return `${resolveInviteBase()}/${invite.code}?event=${this.id}`;
   }
 
   /**

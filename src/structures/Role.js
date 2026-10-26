@@ -72,7 +72,7 @@ class Role extends Base {
      * These values are available as a constant: `Constants.HolographicStyle`
      */
 
-    if ('colors' in data) {
+    if (data.colors) {
       /**
        * The colors of the role
        *
@@ -82,6 +82,12 @@ class Role extends Base {
         primaryColor: data.colors.primary_color,
         secondaryColor: data.colors.secondary_color,
         tertiaryColor: data.colors.tertiary_color,
+      };
+    } else if ('color' in data || !this.colors) {
+      this.colors = {
+        primaryColor: data.color ?? this.color ?? 0,
+        secondaryColor: null,
+        tertiaryColor: null,
       };
     }
 

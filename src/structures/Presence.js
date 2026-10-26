@@ -340,11 +340,12 @@ class RichPresenceAssets {
    */
   smallImageURL(options = {}) {
     if (!this.smallImage) return null;
+    if (/^https?:\/\//.test(this.smallImage)) return this.smallImage;
     if (this.smallImage.includes(':')) {
       const [platform, id] = this.smallImage.split(':');
       switch (platform) {
         case 'mp':
-          return `https://media.discordapp.net/${id}`;
+          return `${this.activity.presence.client.rest.cdn.mediaProxy}/${id}`;
         default:
           return null;
       }
@@ -360,11 +361,12 @@ class RichPresenceAssets {
    */
   largeImageURL(options = {}) {
     if (!this.largeImage) return null;
+    if (/^https?:\/\//.test(this.largeImage)) return this.largeImage;
     if (this.largeImage.includes(':')) {
       const [platform, id] = this.largeImage.split(':');
       switch (platform) {
         case 'mp':
-          return `https://media.discordapp.net/${id}`;
+          return `${this.activity.presence.client.rest.cdn.mediaProxy}/${id}`;
         case 'spotify':
           return `https://i.scdn.co/image/${id}`;
         case 'youtube':

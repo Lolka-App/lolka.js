@@ -1,11 +1,12 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "lolka.js",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "A powerful library for interacting with the lolka bot API (discord.js-compatible fork)",
   "scripts": {
     "build": "node ./scripts/esmDts.mjs",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "test": "node --test test/"
   },
   "main": "./src/index.js",
   "types": "./typings/index.d.ts",

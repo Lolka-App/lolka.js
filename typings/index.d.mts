@@ -45,6 +45,7 @@ import {
   REST,
   RESTOptions,
   ImageSize,
+  CDN,
 } from '@discordjs/rest';
 import {
   WebSocketManager as WSWebSocketManager,
@@ -3606,6 +3607,7 @@ export class ShardingManager extends EventEmitter {
 export interface FetchRecommendedShardCountOptions {
   guildsPerShard?: number;
   multipleOf?: number;
+  api?: string;
 }
 
 export interface SnowflakeGenerateOptions {
@@ -8123,6 +8125,53 @@ export type InternalDiscordGatewayAdapterCreator = (
 ) => InternalDiscordGatewayAdapterImplementerMethods;
 
 //#endregion
+
+//#region Voice (WebRTC)
+
+export interface VoiceConnectionOptions {
+  channelId: string;
+  guildId: string;
+  adapterCreator: InternalDiscordGatewayAdapterCreator;
+  selfMute?: boolean;
+  selfDeaf?: boolean;
+}
+
+export type VoiceConnectionState = 'connecting' | 'ready' | 'error' | 'destroyed';
+
+export class VoiceConnection extends EventEmitter {
+  private constructor(options: VoiceConnectionOptions);
+  public channelId: string;
+  public guildId: string;
+  public state: VoiceConnectionState;
+  public sessionId: string | null;
+  public token: string | null;
+  public endpoint: string | null;
+  public awaitReady(timeout?: number): Promise<void>;
+  public play(input: string | NodeJS.ReadableStream): void;
+  public stop(): void;
+  public destroy(): void;
+  public on(event: 'ready' | 'playing' | 'idle' | 'destroyed', listener: () => void): this;
+  public on(event: 'error', listener: (error: Error) => void): this;
+  public on(event: 'track', listener: (track: unknown, userId: string, producerId: string) => void): this;
+  public once(event: 'ready' | 'playing' | 'idle' | 'destroyed', listener: () => void): this;
+  public once(event: 'error', listener: (error: Error) => void): this;
+  public once(event: 'track', listener: (track: unknown, userId: string, producerId: string) => void): this;
+}
+
+export function joinVoiceChannel(options: VoiceConnectionOptions): VoiceConnection;
+
+//#endregion
+
+// Lolka
+export class LolkaCDN extends CDN {
+  public constructor(cdn?: string, mediaProxy?: string);
+}
+export const LolkaCDNBase: string;
+export const LolkaWebBase: string;
+export const LolkaInviteBase: string;
+export const LolkaApiBase: string;
+export function channelLink(channelId: Snowflake, guildId?: Snowflake | '@me'): string;
+export function messageLink(channelId: Snowflake, messageId: Snowflake, guildId?: Snowflake | '@me'): string;
 
 // External
 export * from 'discord-api-types/v10';

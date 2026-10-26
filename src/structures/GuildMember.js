@@ -137,8 +137,10 @@ class GuildMember extends Base {
         asset: data.avatar_decoration_data.asset,
         skuId: data.avatar_decoration_data.sku_id,
       };
-    } else {
+    } else if ('avatar_decoration_data' in data) {
       this.avatarDecorationData = null;
+    } else {
+      this.avatarDecorationData ??= null;
     }
   }
 

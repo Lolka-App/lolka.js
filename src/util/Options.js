@@ -1,6 +1,7 @@
 'use strict';
 
 const { DefaultRestOptions, DefaultUserAgentAppendix } = require('@discordjs/rest');
+const { resolveApiBase, resolveCdnBase } = require('./LolkaConstants');
 const { toSnakeCase } = require('./Transformers');
 const { version } = require('../../package.json');
 
@@ -130,7 +131,9 @@ class Options extends null {
         // lolka: по умолчанию ходим в lolka bot API (база без версии; либа добавит /v{N}).
         // Переопределяется переменной окружения LOLKA_API_BASE. Gateway-URL бот узнаёт
         // автоматически через GET /gateway/bot, поэтому отдельный оверрайд не нужен.
-        api: process.env.LOLKA_API_BASE ?? 'https://lolka.app/api/bot',
+        api: resolveApiBase(),
+        cdn: resolveCdnBase(),
+        mediaProxy: resolveCdnBase(),
         userAgentAppendix: this.userAgentAppendix,
       },
       jsonTransformer: toSnakeCase,

@@ -27,6 +27,7 @@ const Widget = require('../structures/Widget');
 const { resolveInviteCode, resolveGuildTemplateCode } = require('../util/DataResolver');
 const Events = require('../util/Events');
 const IntentsBitField = require('../util/IntentsBitField');
+const { resolveWebBase } = require('../util/LolkaConstants');
 const Options = require('../util/Options');
 const PermissionsBitField = require('../util/PermissionsBitField');
 const Status = require('../util/Status');
@@ -269,7 +270,7 @@ class Client extends BaseClient {
    * @param {ClientFetchInviteOptions} [options] Options for fetching the invite
    * @returns {Promise<Invite>}
    * @example
-   * client.fetchInvite('https://discord.gg/djs')
+   * client.fetchInvite('https://lolka.gg/djs')
    *   .then(invite => console.log(`Obtained invite with code: ${invite.code}`))
    *   .catch(console.error);
    */
@@ -496,7 +497,7 @@ class Client extends BaseClient {
       query.set('guild_id', guildId);
     }
 
-    return `${this.options.rest.api}${Routes.oauth2Authorization()}?${query}`;
+    return `${resolveWebBase()}/bot-authorize?${query}`;
   }
 
   toJSON() {

@@ -423,7 +423,7 @@ class Webhook {
    * @readonly
    */
   get url() {
-    return this.client.options.rest.api + Routes.webhook(this.id, this.token);
+    return `${new URL(this.client.options.rest.api).origin}/api${Routes.webhook(this.id, this.token)}`;
   }
 
   /**

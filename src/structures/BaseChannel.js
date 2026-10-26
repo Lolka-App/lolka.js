@@ -1,11 +1,12 @@
 'use strict';
 
-const { channelLink, channelMention } = require('@discordjs/formatters');
+const { channelMention } = require('@discordjs/formatters');
 const { DiscordSnowflake } = require('../util/LolkaSnowflake');
 const { ChannelType, Routes } = require('discord-api-types/v10');
 const Base = require('./Base');
 const ChannelFlagsBitField = require('../util/ChannelFlagsBitField');
 const { ThreadChannelTypes } = require('../util/Constants');
+const { channelLink } = require('../util/LolkaLinks');
 
 /**
  * Represents any channel on Discord.

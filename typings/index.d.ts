@@ -45,6 +45,7 @@ import {
   REST,
   RESTOptions,
   ImageSize,
+  CDN,
 } from '@discordjs/rest';
 import {
   WebSocketManager as WSWebSocketManager,
@@ -3606,6 +3607,7 @@ export class ShardingManager extends EventEmitter {
 export interface FetchRecommendedShardCountOptions {
   guildsPerShard?: number;
   multipleOf?: number;
+  api?: string;
 }
 
 export interface SnowflakeGenerateOptions {
@@ -8159,6 +8161,17 @@ export class VoiceConnection extends EventEmitter {
 export function joinVoiceChannel(options: VoiceConnectionOptions): VoiceConnection;
 
 //#endregion
+
+// Lolka
+export class LolkaCDN extends CDN {
+  public constructor(cdn?: string, mediaProxy?: string);
+}
+export const LolkaCDNBase: string;
+export const LolkaWebBase: string;
+export const LolkaInviteBase: string;
+export const LolkaApiBase: string;
+export function channelLink(channelId: Snowflake, guildId?: Snowflake | '@me'): string;
+export function messageLink(channelId: Snowflake, messageId: Snowflake, guildId?: Snowflake | '@me'): string;
 
 // External
 export * from 'discord-api-types/v10';

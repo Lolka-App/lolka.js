@@ -250,6 +250,17 @@ exports.WelcomeChannel = require('./structures/WelcomeChannel');
 exports.WelcomeScreen = require('./structures/WelcomeScreen');
 
 // External
+// Lolka overrides: defined before the star-exports below, which never replace an existing export.
+exports.LolkaCDN = require('./util/LolkaCDN');
+const LolkaConstants = require('./util/LolkaConstants');
+const LolkaLinks = require('./util/LolkaLinks');
+
+exports.LolkaCDNBase = LolkaConstants.LolkaCDNBase;
+exports.LolkaWebBase = LolkaConstants.LolkaWebBase;
+exports.LolkaInviteBase = LolkaConstants.LolkaInviteBase;
+exports.LolkaApiBase = LolkaConstants.LolkaApiBase;
+exports.channelLink = LolkaLinks.channelLink;
+exports.messageLink = LolkaLinks.messageLink;
 __exportStar(require('discord-api-types/v10'), exports);
 __exportStar(require('@discordjs/builders'), exports);
 __exportStar(require('@discordjs/formatters'), exports);
